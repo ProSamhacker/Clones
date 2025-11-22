@@ -1,12 +1,13 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
-import { Menu, Send, Loader2, Image as ImageIcon, Mic, Code, PenTool, Compass, X } from 'lucide-react';
-import { signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
+import { Loader2, Image as ImageIcon, Mic, Code, PenTool, Compass, X, Send } from 'lucide-react';
+import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { generateGeminiResponse, generateImage } from '@/lib/gemini';
 import Sidebar from '@/components/Sidebar';
 import ChatMessage from '@/components/ChatMessage';
+import AuthPage from '@/components/AuthPage'; // Import the new AuthPage
 import { Chat, Message } from '@/types';
 
 interface SuggestionCardProps {
@@ -31,6 +32,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({ icon: Icon, text, onCli
 
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true); // New loading state for auth
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [input, setInput] = useState('');
   const [chats, setChats] = useState<Chat[]>([]);
@@ -44,18 +46,22 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auth
+  // Auth Listener
   useEffect(() => {
-    signInAnonymously(auth);
+    // Removed signInAnonymously
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
+      setAuthLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
   // Fetch Chats
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setChats([]);
+      return;
+    }
     const q = query(collection(db, 'users', user.uid, 'chats'), orderBy('updatedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const chatList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
@@ -87,7 +93,6 @@ export default function Home() {
       const file = e.target.files[0];
       setSelectedFile(file);
       
-      // Create preview
       const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(reader.result as string);
@@ -117,14 +122,12 @@ export default function Home() {
     setIsProcessing(true);
     setInput('');
     
-    // Snapshot current file state before clearing UI
     const currentFile = selectedFile;
     const currentPreview = imagePreview;
     clearFile();
 
     let chatId = currentChatId;
 
-    // 1. Create chat if needed
     if (!chatId) {
       const chatRef = await addDoc(collection(db, 'users', user.uid, 'chats'), {
         title: textToSend.slice(0, 30) || "Image Analysis",
@@ -137,7 +140,6 @@ export default function Home() {
 
     const messagesCollection = collection(db, 'users', user.uid, 'chats', chatId, 'messages');
     
-    // 2. Upload Image to Vercel Blob (if exists)
     let uploadedImageUrl = null;
     if (currentFile) {
       try {
@@ -152,15 +154,13 @@ export default function Home() {
       }
     }
 
-    // 3. Save User Message
     await addDoc(messagesCollection, { 
       role: 'user', 
       content: textToSend, 
-      imageUrl: uploadedImageUrl, // Store the Vercel Blob URL
+      imageUrl: uploadedImageUrl,
       createdAt: serverTimestamp() 
     });
 
-    // 4. AI Processing
     const thinkingRef = await addDoc(messagesCollection, { 
       role: 'model', 
       isLoading: true, 
@@ -170,7 +170,6 @@ export default function Home() {
     const isImageRequest = textToSend.toLowerCase().match(/generate image|create an image|draw/);
 
     if (isImageRequest && !currentFile) {
-      // --- Image Generation Mode ---
       const imageUrl = await generateImage(textToSend);
       await updateDoc(doc(messagesCollection, thinkingRef.id), {
         content: imageUrl ? "Here is the image." : "Failed to generate image.",
@@ -179,15 +178,12 @@ export default function Home() {
         createdAt: serverTimestamp()
       });
     } else {
-      // --- Text/Vision Analysis Mode ---
-      // Get recent history (text only for now to keep payload small)
       const recentHistory = messages.slice(-5).map(m => ({ role: m.role, content: m.content }));
       
-      // Call Gemini with text + optional base64 image
       const { text, grounding } = await generateGeminiResponse(
         textToSend, 
         recentHistory,
-        currentPreview, // Pass base64 for analysis
+        currentPreview,
         currentFile?.type || "image/png"
       );
 
@@ -203,9 +199,22 @@ export default function Home() {
     setIsProcessing(false);
   };
 
+  // --- RENDER AUTH PAGE IF NOT LOGGED IN ---
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#131314] text-[#e3e3e3]">
+        <Loader2 className="animate-spin text-[#c58af9]" size={48} />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthPage />;
+  }
+
+  // --- RENDER MAIN APP ---
   return (
     <div className="flex h-screen bg-[#131314] text-[#e3e3e3] font-sans overflow-hidden">
-      {/* Mobile Overlay */}
       {isSidebarOpen && (
         <div 
           className="fixed inset-0 bg-black/50 z-30 md:hidden"
@@ -234,7 +243,9 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-2">
              <button className="p-2 bg-[#282a2c] text-[#a8c7fa] rounded-full">
-               <div className="w-6 h-6 flex items-center justify-center font-bold">S</div>
+               <div className="w-6 h-6 flex items-center justify-center font-bold">
+                 {user.email ? user.email[0].toUpperCase() : 'U'}
+               </div>
              </button>
           </div>
         </div>
@@ -245,7 +256,7 @@ export default function Home() {
               <div className="flex-1 flex flex-col justify-center items-start pt-20 pb-10">
                 <div className="mb-12">
                   <h1 className="text-5xl md:text-6xl font-medium mb-2">
-                    <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-red-400 bg-clip-text text-transparent">Hello, User</span>
+                    <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-red-400 bg-clip-text text-transparent">Hello, {user.displayName || 'User'}</span>
                   </h1>
                   <h2 className="text-3xl md:text-4xl text-[#444746] font-medium">How can I help you today?</h2>
                 </div>
