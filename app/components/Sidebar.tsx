@@ -1,6 +1,6 @@
 "use client";
-import React from 'react';
-import { Menu, Plus, MessageSquare, Settings, Gem } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Menu, Plus, MessageSquare, Settings, Gem, Trash2, LogOut, MoreVertical } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { Chat } from '@/types';
 
@@ -11,6 +11,8 @@ interface SidebarProps {
   chats: Chat[];
   currentChatId: string | null;
   onSelectChat: (id: string) => void;
+  onDeleteChat: (id: string) => void;
+  onLogout: () => void;
   user: User | null;
 }
 
@@ -21,8 +23,24 @@ const Sidebar: React.FC<SidebarProps> = ({
   chats, 
   currentChatId, 
   onSelectChat, 
+  onDeleteChat,
+  onLogout,
   user 
 }) => {
+  const [showSettings, setShowSettings] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  // Close settings menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
+        setShowSettings(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   return (
     <div className={`fixed inset-y-0 left-0 z-40 flex flex-col bg-[#1e1f20] transition-all duration-300 ${isOpen ? 'w-[280px]' : 'w-0 -translate-x-full md:w-[72px] md:translate-x-0'} border-r border-[#333]`}>
       <div className="flex items-center p-4 h-16">
@@ -48,20 +66,52 @@ const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={chat.id}
               onClick={() => onSelectChat(chat.id)}
-              className={`flex items-center gap-3 p-2 rounded-full text-sm text-[#e3e3e3] hover:bg-[#282a2c] transition-colors group ${currentChatId === chat.id ? 'bg-[#004a77] text-blue-100' : ''}`}
+              className={`flex items-center gap-3 p-2 rounded-full text-sm text-[#e3e3e3] hover:bg-[#282a2c] transition-colors group relative ${currentChatId === chat.id ? 'bg-[#004a77] text-blue-100' : ''}`}
             >
               <MessageSquare size={16} className="min-w-[16px]" />
               {isOpen && (
-                <span className="truncate flex-1 text-left">
-                  {chat.title || "New Chat"}
-                </span>
+                <>
+                  <span className="truncate flex-1 text-left pr-6">
+                    {chat.title || "New Chat"}
+                  </span>
+                  <div 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteChat(chat.id);
+                    }}
+                    className="absolute right-2 opacity-0 group-hover:opacity-100 p-1 hover:bg-[#3c4043] rounded-md text-gray-400 hover:text-red-400 transition-all"
+                    title="Delete chat"
+                  >
+                    <Trash2 size={14} />
+                  </div>
+                </>
               )}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="p-3 mt-auto">
+      <div className="p-3 mt-auto relative" ref={settingsRef}>
+        {/* Settings Menu Popover */}
+        {showSettings && isOpen && (
+          <div className="absolute bottom-full left-3 w-60 bg-[#28292a] rounded-xl shadow-xl border border-[#333] mb-2 overflow-hidden py-1 z-50">
+             <div className="px-4 py-3 border-b border-[#333]">
+                <p className="text-sm font-medium text-white">{user?.email}</p>
+                <p className="text-xs text-gray-400 mt-0.5">Free Plan</p>
+             </div>
+             <button 
+               onClick={() => {
+                 onLogout();
+                 setShowSettings(false);
+               }}
+               className="w-full text-left px-4 py-2.5 text-sm text-red-400 hover:bg-[#333] flex items-center gap-2 transition-colors"
+             >
+               <LogOut size={16} />
+               Log out
+             </button>
+          </div>
+        )}
+
         <button className={`flex items-center gap-3 p-2 rounded-full text-[#e3e3e3] hover:bg-[#282a2c] w-full ${!isOpen && 'justify-center'}`}>
           <Gem size={20} className="text-[#c58af9]" />
           {isOpen && (
@@ -71,15 +121,14 @@ const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
         </button>
-        <button className={`flex items-center gap-3 p-2 rounded-full text-[#e3e3e3] hover:bg-[#282a2c] w-full mt-1 ${!isOpen && 'justify-center'}`}>
+        
+        <button 
+          onClick={() => setShowSettings(!showSettings)}
+          className={`flex items-center gap-3 p-2 rounded-full text-[#e3e3e3] hover:bg-[#282a2c] w-full mt-1 ${!isOpen && 'justify-center'} ${showSettings ? 'bg-[#282a2c]' : ''}`}
+        >
           <Settings size={20} />
-          {isOpen && <span className="text-sm">Settings</span>}
+          {isOpen && <span className="text-sm flex-1 text-left">Settings</span>}
         </button>
-        {user && isOpen && (
-           <div className="text-[10px] text-gray-500 text-center mt-2 px-2 truncate">
-             {user.email || user.uid.slice(0, 8)}
-           </div>
-        )}
       </div>
     </div>
   );

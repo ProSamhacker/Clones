@@ -2,12 +2,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Loader2, Image as ImageIcon, Mic, Code, PenTool, Compass, X, Send } from 'lucide-react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { generateGeminiResponse, generateImage } from '@/lib/gemini';
 import Sidebar from '@/components/Sidebar';
 import ChatMessage from '@/components/ChatMessage';
-import AuthPage from '@/components/AuthPage'; // Import the new AuthPage
+import AuthPage from '@/components/AuthPage'; 
 import { Chat, Message } from '@/types';
 
 interface SuggestionCardProps {
@@ -32,7 +32,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({ icon: Icon, text, onCli
 
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true); // New loading state for auth
+  const [authLoading, setAuthLoading] = useState(true); 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [input, setInput] = useState('');
   const [chats, setChats] = useState<Chat[]>([]);
@@ -48,7 +48,6 @@ export default function Home() {
 
   // Auth Listener
   useEffect(() => {
-    // Removed signInAnonymously
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthLoading(false);
@@ -113,6 +112,33 @@ export default function Home() {
     setMessages([]);
     setInput('');
     clearFile();
+  };
+
+  const handleDeleteChat = async (chatId: string) => {
+    if (!user) return;
+    const confirmDelete = window.confirm("Are you sure you want to delete this chat?");
+    if (!confirmDelete) return;
+
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'chats', chatId));
+      if (currentChatId === chatId) {
+        handleNewChat();
+      }
+    } catch (error) {
+      console.error("Error deleting chat:", error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+      setUser(null);
+      setMessages([]);
+      setChats([]);
+      setCurrentChatId(null);
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
   };
 
   const handleSendMessage = async (textOverride: string | null = null) => {
@@ -199,7 +225,6 @@ export default function Home() {
     setIsProcessing(false);
   };
 
-  // --- RENDER AUTH PAGE IF NOT LOGGED IN ---
   if (authLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#131314] text-[#e3e3e3]">
@@ -212,7 +237,6 @@ export default function Home() {
     return <AuthPage />;
   }
 
-  // --- RENDER MAIN APP ---
   return (
     <div className="flex h-screen bg-[#131314] text-[#e3e3e3] font-sans overflow-hidden">
       {isSidebarOpen && (
@@ -232,6 +256,8 @@ export default function Home() {
           setCurrentChatId(id);
           setIsSidebarOpen(window.innerWidth >= 768);
         }}
+        onDeleteChat={handleDeleteChat}
+        onLogout={handleLogout}
         user={user}
       />
 
@@ -280,7 +306,6 @@ export default function Home() {
 
         <div className="p-4 bg-[#131314] w-full">
           <div className="max-w-3xl mx-auto">
-            {/* File Preview Area */}
             {imagePreview && (
               <div className="mb-2 relative inline-block">
                 <img src={imagePreview} alt="Preview" className="h-20 w-auto rounded-lg border border-[#444]" />
